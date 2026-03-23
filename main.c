@@ -1,80 +1,152 @@
 #include <ucontext.h>
 #include <stdio.h>
 #include <malloc.h>
+#include <stdbool.h>
 
 #define FIBER_STACK 1024*64
 
-ucontext_t uctx_fiber_one, uctx_fiber_two, uctx_fiber_three, uctx_fiber_main;
+ucontext_t uctx_fiber_main;
+
+typedef struct task_t
+{
+    ucontext_t context;
+	void (*func)();
+    struct task_t *next;
+    struct task_t *prev;
+}task_t;
+
+task_t *taskQueue = NULL;
+task_t *runningTask = NULL;
+
+void push(task_t** head, task_t* newNode);
+
+int create_task(void (*start_routine)()) {
+
+    task_t* newNode = (task_t*)malloc(sizeof(task_t));
+    if (newNode == NULL) {
+        return -1;
+    }
+
+    newNode->func = start_routine;
+    newNode->next = NULL;
+    newNode->prev = NULL;
+
+    getcontext(&newNode->context);
+    
+    newNode->context.uc_link = &uctx_fiber_main;
+    newNode->context.uc_stack.ss_sp = malloc(FIBER_STACK);
+    newNode->context.uc_stack.ss_size = FIBER_STACK;
+    newNode->context.uc_stack.ss_flags = 0;
+    
+
+    makecontext(&newNode->context, start_routine, 0);
+
+	push(&taskQueue, newNode);
+    return 0;
+}
+
+void push(task_t** head, task_t* newNode)
+{
+	if(newNode == NULL)
+	{
+		return;
+	}
+
+	if(*head == NULL)
+	{
+		*head = newNode;
+		return;
+	}
+
+	task_t* temp = *head;
+	while(temp->next != NULL)
+	{
+		temp = temp->next;
+	}
+
+	temp->next = newNode;
+	newNode->prev = temp;
+}
+
+task_t* pop(task_t** head)
+{
+    if (*head == NULL)
+    {
+        return NULL;
+    }
+
+    task_t* temp = *head;
+
+    *head = (*head)->next;
+
+    if (*head != NULL)
+    {
+        (*head)->prev = NULL;
+    }
+
+    temp->next = NULL;
+    temp->prev = NULL;
+
+    return temp;
+}
+
+
 
 void fiber_one()
 {
-
-	printf("Fiber1 started\n");
-	printf("Swaping context to fiber2\n");
-	swapcontext(&uctx_fiber_one, &uctx_fiber_two);
-
-	printf("Fiber1 just started\n");
-	printf("Swaping context to fiber2\n");
-	swapcontext(&uctx_fiber_one, &uctx_fiber_two);
-
+	while(true)
+	{
+		printf("+\n");
+		fflush(stdout);
+		swapcontext(&runningTask->context, &uctx_fiber_main);
+	}
 }
 
 void fiber_two()
 {
-	printf("Fiber2 started\n");
-	printf("Swaping context to fiber3\n");
-	swapcontext(&uctx_fiber_two, &uctx_fiber_three);
-
-	printf("Fiber2 just started again\n");
-	printf("Swaping context to fiber3\n");
-	swapcontext(&uctx_fiber_two, &uctx_fiber_three);
-
-
+	while(true)
+	{
+		printf("-\n");
+		swapcontext(&runningTask->context, &uctx_fiber_main);
+	}
 }
 
 void fiber_three()
 {
-	printf("Fiber3 started\n");
-	printf("Swaping context to fiber1\n");
-	swapcontext(&uctx_fiber_three, &uctx_fiber_one);
-
-	printf("Fiber3 just started\n");
-	printf("Swapnig context to main\n");
-	swapcontext(&uctx_fiber_three, &uctx_fiber_main);
+	while(true)
+	{
+		printf("!\n");
+		swapcontext(&runningTask->context, &uctx_fiber_main);
+	}
 }
 
 int main()
 {
-	getcontext(&uctx_fiber_one);
-	uctx_fiber_one.uc_link = NULL;
+	create_task(&fiber_one);
+	create_task(&fiber_two);
+	create_task(&fiber_three);
+// Initialize RunningTask to NULL before starting the loop
+    runningTask = NULL;
 
-	uctx_fiber_one.uc_stack.ss_sp = malloc(FIBER_STACK);
-	uctx_fiber_one.uc_stack.ss_size = FIBER_STACK;
-	uctx_fiber_one.uc_stack.ss_flags = 0;
+    while(true) {
+        // Algorithm Step 1: ТСВ на текущата задача (сочена от RunningTask) се добавя в края на опашката.
+        // (If a task was just running, put it at the back of the line)
+        if (runningTask != NULL) {
+            push(&taskQueue, runningTask);
+        }
 
-	makecontext(&uctx_fiber_one, fiber_one, 0);
+        // Algorithm Step 2: Извлича се от началото на опашката първия TCB и се указва да се сочи от RunningTask.
+        // (Take the next task from the front of the line)
+        runningTask = pop(&taskQueue);
 
-	getcontext(&uctx_fiber_two);
-	uctx_fiber_two.uc_link = NULL;
-
-	uctx_fiber_two.uc_stack.ss_sp = malloc(FIBER_STACK);
-	uctx_fiber_two.uc_stack.ss_size = FIBER_STACK;
-	uctx_fiber_two.uc_stack.ss_flags = 0;
-
-	makecontext(&uctx_fiber_two, fiber_two, 0);
-
-	getcontext(&uctx_fiber_three);
-	uctx_fiber_three.uc_link = NULL;
-
-	uctx_fiber_three.uc_stack.ss_sp = malloc(FIBER_STACK);
-	uctx_fiber_three.uc_stack.ss_size = FIBER_STACK;
-	uctx_fiber_three.uc_stack.ss_flags = 0;
-
-	makecontext(&uctx_fiber_three, fiber_three, 0);
-
-	swapcontext(&uctx_fiber_main, &uctx_fiber_one);
-	printf("Main received context\n");
-	printf("Main exiting\n");
-	
+        // Algorithm Step 3: Превключва се контекста към задачата, сочена от RunningTask.
+        // (Save main's context, and jump to the task's context)
+        if (runningTask != NULL) {
+            swapcontext(&uctx_fiber_main, &runningTask->context);
+        } else {
+            // Safety fallback: if the queue is empty, exit the loop
+            break; 
+        }
+    }
 	return 0;
 }
