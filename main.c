@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <ucontext.h>
 #include <stdio.h>
 #include <malloc.h>
@@ -9,6 +11,7 @@
 #define FIBER_STACK 1024*64
 
 ucontext_t uctx_fiber_main;
+
 
 typedef struct task_t
 {
@@ -97,10 +100,13 @@ task_t* pop(task_t** head)
 
 void fiber_one()
 {
+    int local_counter = 0;
 	while(true)
 	{
+        local_counter++;
+        printf("+ (counter: %d)\n", local_counter);
 		printf("+\n");
-        for(int i = 0; i<10000000; i++);
+        for(int i = 0; i<100000000; i++);
 	}
 }
 
@@ -109,7 +115,7 @@ void fiber_two()
 	while(true)
 	{
 		printf("-\n");
-        for(int i = 0; i<10000000; i++);
+        for(int i = 0; i<100000000; i++);
 	}
 }
 
@@ -118,14 +124,17 @@ void fiber_three()
 	while(true)
 	{
 		printf("!\n");
-        for(int i = 0; i<10000000; i++);
+        for(int i = 0; i<100000000; i++);
 	}
 }
+
 
 void sig_handler(int signo)
 {
     if(signo == SIGALRM)
     {
+        task_t *interruptedTask = runningTask;
+
         if (runningTask != NULL) {
             push(&taskQueue, runningTask);
         }
@@ -133,10 +142,11 @@ void sig_handler(int signo)
         runningTask = pop(&taskQueue);
 
         if (runningTask != NULL) {
-            swapcontext(&uctx_fiber_main, &runningTask->context);
-        } else {
-
-            return;
+            if (interruptedTask == NULL) {
+                swapcontext(&uctx_fiber_main, &runningTask->context);
+            } else {
+                swapcontext(&interruptedTask->context, &runningTask->context);
+            }
         }
     }
 }
@@ -157,8 +167,10 @@ int main()
 
     runningTask = NULL;
 
-    if(signal(SIGALRM, sig_handler) == SIG_ERR)
+    if(signal(SIGALRM, sig_handler)) {
         printf("Can't catch signal\n");
+        return 1;
+    }
     setitimer(ITIMER_REAL, &timer, NULL);
 
     while(true) {
