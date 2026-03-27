@@ -100,7 +100,7 @@ void fiber_one()
 	while(true)
 	{
 		printf("+\n");
-		swapcontext(&runningTask->context, &uctx_fiber_main);
+        for(int i = 0; i<10000000; i++);
 	}
 }
 
@@ -109,7 +109,7 @@ void fiber_two()
 	while(true)
 	{
 		printf("-\n");
-		swapcontext(&runningTask->context, &uctx_fiber_main);
+        for(int i = 0; i<10000000; i++);
 	}
 }
 
@@ -118,7 +118,7 @@ void fiber_three()
 	while(true)
 	{
 		printf("!\n");
-		swapcontext(&runningTask->context, &uctx_fiber_main);
+        for(int i = 0; i<10000000; i++);
 	}
 }
 
@@ -145,7 +145,7 @@ int main()
 {
     struct itimerval timer;
 
-    timer.it_value.tv_sec = 2;
+    timer.it_value.tv_sec = 1;
     timer.it_value.tv_usec = 0;
 
     timer.it_interval.tv_sec = 1;
