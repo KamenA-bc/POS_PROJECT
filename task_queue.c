@@ -1,10 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "task_descriptor.h"
+#include "TCB.h"
 
 typedef struct Node
 {
-	TaskDescriptor* task;
+	task_t* task;
 	struct Node* prev;
 	struct Node* next;
 }Node;

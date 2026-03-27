@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <stdbool.h>
+#include <sys/time.h>
+#include <signal.h>
+#include <unistd.h>
 
 #define FIBER_STACK 1024*64
 
@@ -97,7 +100,6 @@ void fiber_one()
 	while(true)
 	{
 		printf("+\n");
-		fflush(stdout);
 		swapcontext(&runningTask->context, &uctx_fiber_main);
 	}
 }
@@ -120,33 +122,47 @@ void fiber_three()
 	}
 }
 
-int main()
+void sig_handler(int signo)
 {
-	create_task(&fiber_one);
-	create_task(&fiber_two);
-	create_task(&fiber_three);
-// Initialize RunningTask to NULL before starting the loop
-    runningTask = NULL;
-
-    while(true) {
-        // Algorithm Step 1: ТСВ на текущата задача (сочена от RunningTask) се добавя в края на опашката.
-        // (If a task was just running, put it at the back of the line)
+    if(signo == SIGALRM)
+    {
         if (runningTask != NULL) {
             push(&taskQueue, runningTask);
         }
 
-        // Algorithm Step 2: Извлича се от началото на опашката първия TCB и се указва да се сочи от RunningTask.
-        // (Take the next task from the front of the line)
         runningTask = pop(&taskQueue);
 
-        // Algorithm Step 3: Превключва се контекста към задачата, сочена от RunningTask.
-        // (Save main's context, and jump to the task's context)
         if (runningTask != NULL) {
             swapcontext(&uctx_fiber_main, &runningTask->context);
         } else {
-            // Safety fallback: if the queue is empty, exit the loop
-            break; 
+
+            return;
         }
+    }
+}
+
+int main()
+{
+    struct itimerval timer;
+
+    timer.it_value.tv_sec = 2;
+    timer.it_value.tv_usec = 0;
+
+    timer.it_interval.tv_sec = 1;
+    timer.it_interval.tv_usec = 0;
+
+	create_task(&fiber_one);
+	create_task(&fiber_two);
+	create_task(&fiber_three);
+
+    runningTask = NULL;
+
+    if(signal(SIGALRM, sig_handler) == SIG_ERR)
+        printf("Can't catch signal\n");
+    setitimer(ITIMER_REAL, &timer, NULL);
+
+    while(true) {
+        sleep(1);
     }
 	return 0;
 }
